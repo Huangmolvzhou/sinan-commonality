@@ -6,6 +6,18 @@
 
 ---
 
+## 先看看它长什么样
+
+- **一页看懂它做什么** → https://huangmolvzhou.github.io/sinan-commonality/
+- **直接下载能跑的发行包** → [Releases](https://github.com/Huangmolvzhou/sinan-commonality/releases/latest)
+  下 `sinan-v6.7.1-portable.zip`（16.9 MB），解压后双击「启动工具」，浏览器自己会开。
+  包里自带依赖，不用 `npm install`；**不含任何账号密码，第一次要先跑一次配置向导**。
+
+> 发行包是给「只想用、不想装开发环境」的人准备的；想改代码、跑测试，按下面「快速开始」来。
+
+---
+
+
 ## 它解决什么问题
 
 一个典型场景：Post AOI 某个点位两天出了 31 条偏位不良。人工要做的是：
