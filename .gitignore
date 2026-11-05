@@ -1,0 +1,38 @@
+# ===== 凭据：永不入库 =====
+config.local.json
+*.local.json
+**/.config/sinan/
+config/mes.local.json
+config/be.local.json
+config/ch.local.json
+config/contact.local.json
+
+# ===== 第三方 / 来源不明，不随仓库发布 =====
+# public/aoi-tool.html 是 1.7 MB 的单文件旧工具（顶栏「AOI 深度分析（原工具）」），
+# 来源与授权不明，不适合跟仓库一起公开。本地留着照常能用，
+# 前端启动时会 HEAD 探一下：文件在就显示入口，不在就隐藏，不会 404。
+public/aoi-tool.html
+
+# ===== 运行产物 / 系统垃圾 =====
+node_modules/
+__pycache__/
+.DS_Store
+~$*
+*.log
+*.tmp
+
+# ===== 客户与内部基础设施信息：永不入库 =====
+# MIL172 客户回复口径含客户方 DRI 姓名与对客户的日期承诺
+docs/MIL172/
+docs/MIL172_自动触发FACA_开发计划_20261103.md
+# 给 MES 的说明含服务器配置、账号权限等级、内部申请路径
+给MES的说明_资源使用与申请.txt
+
+# ===== 截图：含真实产品名 / 机台名，只保留文档实际引用的那一张 =====
+截图/*
+!截图/sop_05_SPI.png
+
+# ===== 临时探针脚本（开发期一次性用）=====
+_probe_*.js
+_t_*.js
+_chk*.js

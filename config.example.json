@@ -1,0 +1,8 @@
+{
+  "_说明": "这是示例，不要直接改这个文件。真正的配置放在 ~/.config/sinan/mes.local.json（双击「首次配置_数据库连接」会自动生成，权限 600）。",
+  "host": "<MES_HOST>",
+  "port": 1433,
+  "database": "mes40",
+  "user": "你的只读账号",
+  "password": "你的密码"
+}

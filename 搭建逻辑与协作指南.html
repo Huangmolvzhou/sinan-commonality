@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>SMT 不良共性分析工具 · 搭建逻辑与协作指南</title>
+<style>
+body{font:13.5px/1.75 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:#12171d;max-width:900px;margin:0 auto;padding:34px 30px 70px;background:#fff}
+h1{font-size:25px;margin:0 0 4px}
+.sub{color:#7b8794;font:11px ui-monospace,Menlo,monospace;margin-bottom:26px}
+h2{font-size:17px;margin:34px 0 10px;padding-bottom:6px;border-bottom:2px solid #12171d}
+h3{font-size:14px;margin:20px 0 6px;color:#0f172a}
+p,li{font-size:13px}
+code{background:#f1f5f9;padding:1px 5px;border-radius:3px;font:11.5px ui-monospace,Menlo,monospace}
+table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}
+th{background:#f6f7f8;text-align:left;padding:7px 9px;border:1px solid #e3e7ea;font-weight:600;font-size:11.5px}
+td{padding:7px 9px;border:1px solid #e3e7ea;vertical-align:top}
+td.c{font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:nowrap}
+.box{border:1px solid #e3e7ea;border-radius:6px;padding:12px 16px;margin:12px 0;background:#fafbfc}
+.warn{border-left:3px solid #c2410c;background:#fff7f2;padding:10px 14px;margin:12px 0;font-size:12.5px}
+.ok{border-left:3px solid #0f766e;background:#f2fbf9;padding:10px 14px;margin:12px 0;font-size:12.5px}
+.bad{border-left:3px solid #b91c1c;background:#fef4f4;padding:10px 14px;margin:8px 0;font-size:12.5px}
+.good{border-left:3px solid #0f766e;background:#f2fbf9;padding:10px 14px;margin:8px 0;font-size:12.5px}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:6px;font:11.5px/1.7 ui-monospace,Menlo,monospace;overflow:auto}
+pre .k{color:#93c5fd}
+.tree{font:11.5px/1.9 ui-monospace,Menlo,monospace;background:#fafbfc;border:1px solid #e3e7ea;border-radius:5px;padding:12px 16px}
+.tag{display:inline-block;font:10px ui-monospace,monospace;padding:1px 6px;border-radius:3px;background:#eef2f7;color:#4a5560;margin-right:4px}
+@media print{body{padding:0;max-width:none}h2{page-break-after:avoid}tr{page-break-inside:avoid}}
+</style></head><body>
+
+<h1>SMT 不良共性分析工具 · 搭建逻辑与协作指南</h1>
+<div class="sub">v6.7 · 2026.11.04 · Powered by PQM Morgan · 这份文档有两部分：①需求怎么变成模块 ②以后怎么提需求</div>
+
+<div class="box">
+<b>一句话定位</b>：从「Post AOI 检出了什么不良」出发，自动把 MES 里能解释它的东西（机台、吸嘴、飞达、载具、材料、SPI/AOI 测量值）
+全拉出来做对照，回答三个问题 —— <b>有没有共性？集中在哪？是不是这次才变差？</b>
+</div>
+
+<h2>一、需求 → 模块 对照表</h2>
+<p>左边是你在对话里提的原话（按提出顺序），右边是对应的实现位置。以后要改哪一块，直接说「第 N 条那个」，我能立刻定位。</p>
+
+<table>
+<tr><th style="width:5%">#</th><th style="width:38%">你的需求（原话提炼）</th><th style="width:22%">落在哪个模块</th><th>具体怎么实现的</th></tr>
+
+<tr><td class="c">1</td><td>Post AOI 不良要自动抓 MES 的埋板设备/载具/印刷/SPI/贴片机/吸嘴/轨道，看是机台、排版还是材料厂商的问题</td>
+<td class="c">lib/v2/sql.js<br>lib/v2/collect.js</td>
+<td>六条取数链：AOI 不良池 → StationTrace（工序链）→ SubCodeTrace（吸嘴/飞达/穴位/位号）→ MachineTrace（机台）→ TrackTrace（料号/厂商/批号）→ SMT_PanelCode（载具/钢片）</td></tr>
+
+<tr><td class="c">2</td><td>筛选要能选项目/时间/工站/不良点位/panel/不良现象，<b>不能混项目</b></td>
+<td class="c">sql.js<br>public/index.html</td>
+<td>六维筛选 + 级联字典：每层下拉都带上层条件去查，选项后的数字是"当前条件下有几条"</td></tr>
+
+<tr><td class="c">3</td><td>只读，千万别把数据库搞坏</td>
+<td class="c">lib/conn.js</td>
+<td><code>assertReadOnly()</code>：非 SELECT/WITH 直接抛错；先掏空字符串字面量再查关键词，避免 <code>'update'</code> 这种值被误杀</td></tr>
+
+<tr><td class="c">4</td><td>吸嘴等信息在 <code>TRS_Busi_SubCodeTrace</code>，不同工站用「钢片码+时间戳+位号」关联</td>
+<td class="c">collect.js<br>sql.js</td>
+<td>先按 PanelCode 拉该位号全部穴位（90 条/板），再用 MachineTraceID+TableNo+PickPos 对齐 TrackTrace 拿材料</td></tr>
+
+<tr><td class="c">5</td><td>先给计划，不要直接写代码</td>
+<td class="c">—</td>
+<td>方案卡四段：①我理解你要做什么 ②3-6 步 ③用哪些技能 ④要你确认什么</td></tr>
+
+<tr><td class="c">6</td><td>先把 LINE-A / COMP-A 的 Post AOI 偏移跑通</td>
+<td class="c">tests/v2_case.js</td>
+<td>拿这个真实案例当回归锚点，每次改完都跑它，确认结论没漂</td></tr>
+
+<tr><td class="c">7</td><td>对照口径用「前 7 天同产品」</td>
+<td class="c">collect.js · okBase()</td>
+<td>同线体+同工单+前 N 天的板做基准池；取不到时自动退到「分析窗同期」并标注</td></tr>
+
+<tr><td class="c">8</td><td>加「同载具跨工单」</td>
+<td class="c">collect.js · crossFixture()<br>engine.js · crossDim()</td>
+<td>用本批载具反查近 14 天跑过的所有板（跨工单），再和同机台同点位的 NG 板取交集</td></tr>
+
+<tr><td class="c">9</td><td>加「同一把吸嘴/飞达跨机台」</td>
+<td class="c">engine.js · machineMatrix()</td>
+<td>同一把吸嘴在每台机的不良率对比 + 两比例 z 检验；飞达物理上不跨机台，明确写出来</td></tr>
+
+<tr><td class="c">10</td><td>判不出来时给「扩样验证」按钮，一句话结论</td>
+<td class="c">index.html · runExpand()</td>
+<td>只改开始日期往前 7 天，重跑一遍，逐项对比「原窗口 → 扩样后」，给出哪几项转显著</td></tr>
+
+<tr><td class="c">11</td><td>聚集度高的给排查建议按钮</td>
+<td class="c">index.html · PLAYBOOK</td>
+<td>13 套检查清单（查什么/怎么查/判据），按维度自动匹配</td></tr>
+
+<tr><td class="c">12</td><td>排查建议不要写部门；高度怀疑下面直接放清单；"为什么"可折叠</td>
+<td class="c">index.html · renderInlineActions()<br>PLAYBOOK[x].why</td>
+<td>去掉 EE/PE/ME 标签；清单内联在结论下；每条清单底部 <code>&lt;details&gt;</code> 折叠"为什么查这些"</td></tr>
+
+<tr><td class="c">13</td><td>把维度和集中性算法列出来，让我核对</td>
+<td class="c">index.html · renderMethod()</td>
+<td>12 维度 + 1 矩阵的对照方式表 + 8 条计算口径（页面最底，折叠）</td></tr>
+
+<tr><td class="c">14</td><td>ClickHouse 有 AOI/SPI 数据，要看 NG 和 OK 的分布关系，箱线+散点，NG 红 OK 绿</td>
+<td class="c">server_v2.js · /api/dist*<br>index.html · miniChart()</td>
+<td>ClickHouse HTTP 直查；OK 侧取分位数+1200 点采样，NG 侧全取；小提琴（KDE）+ 箱线 + 密度散点</td></tr>
+
+<tr><td class="c">15</td><td>指标区分度写进报告</td>
+<td class="c">index.html · buildReportHTML()</td>
+<td>报告新增一节：各指标「NG 落在 OK P1~P99 之外」的占比 + 中位偏移</td></tr>
+
+<tr><td class="c">16</td><td>SPI/AOI 跟上面的选项联动，不要单独选</td>
+<td class="c">index.html · autoDist()</td>
+<td>删除数据源/元件/指标三个控件；自动用当前点位+时间窗+现象，AOI 与 SPI 全指标一起扫，挑最分得开的</td></tr>
+
+<tr><td class="c">17</td><td>画图按 MK ver1.49 的逻辑画（现在看不出来任何东西）</td>
+<td class="c">index.html · kde()/boxStats()</td>
+<td>Silverman 带宽 KDE 小提琴 + 1.5IQR 箱线 + 离群点 + 密度加权散点 + 共享刻度</td></tr>
+
+<tr><td class="c">18</td><td>五个指标一次画（5 个小图）</td>
+<td class="c">index.html · renderDistGrid()</td>
+<td>300×220 的卡片网格，AOI 五个指标并排，按区分度排序，一次请求返回全部数据</td></tr>
+
+<tr><td class="c">19</td><td>USL/LSL 自动补负号（Offset/Rotation）、另两个不补；坐标要含上下限</td>
+<td class="c">index.html · specOf()</td>
+<td><code>SYMMETRIC</code> 表：双向规格缺一侧用另一侧取负补齐；Y 轴范围把 LSL/USL 算进去再留 8%</td></tr>
+
+<tr><td class="c">20</td><td>泳道图看集中性，强相关用红色醒目</td>
+<td class="c">index.html · laneSVG()</td>
+<td>一行一维度、气泡=不良数；<b>通过检验的实心红</b>；有显著项的维度排最上；右侧只算样本达标的最高倍数</td></tr>
+
+<tr><td class="c">21</td><td>图要放进导出报告</td>
+<td class="c">index.html · buildReportHTML()</td>
+<td>泳道/Pareto/五指标全部以 SVG 内嵌，A4 打印不糊，不依赖外部文件</td></tr>
+
+<tr><td class="c">22</td><td>替换 AOI 深度分析为 v1.51；给同事 SOP；打包 Win/Mac 都能用</td>
+<td class="c">public/index.html<br>启动工具.bat/.command</td>
+<td>原工具复制进 public 并加顶栏入口；两个启动器自动找 node、端口占用自动顺延；依赖整包打入，解压即用</td></tr>
+
+<tr><td class="c">23</td><td>如果 7 天不良都很高，基准不就偏了？</td>
+<td class="c">collect.js · historyQuery()<br>engine.js · chronicity()</td>
+<td>拉 30 天逐日不良数，和本窗日均比：&lt;1.3 慢性 / 1.3~2 略升 / &gt;2 突发。明确写"倍数只说明集中在哪，不说明为什么变差"</td></tr>
+
+<tr><td class="c">24</td><td>SMT 后段 Bending（BE）的 VSWR/ICT/AVI 也要放进共性分析</td>
+<td class="c">lib/conn_be.js<br>lib/v2/be_sql.js<br>be_engine.js<br>be_collect.js</td>
+<td>接第二台库 &lt;BE_HOST&gt;：不良取 <code>T_Bllb_TestDefectInformation(IResult=0)</code>，分母取 <code>TRS_Busi_StationTrace</code> 同工序过站（不良表的 PASS 行覆盖率太低，不能用）；8 道工序一次只查一道（合起来 join 会 120 秒超时）；<b>工位维不折算倍数</b>（两表工位码板号交集实测为 0）</td></tr>
+
+<tr><td class="c">25</td><td>给我几个成品 SN，能不能分析共性 / 客诉反向查询</td>
+<td class="c">lib/v2/sn_trace.js<br>server_v2.js /api/sn/*<br>index.html #snModal</td>
+<td>一次拉四路：SMT 全程过站 + AOI/SPI 实测值（ClickHouse）+ BE 过站与不良 + 前后各 200 块同产品同机台正常板。输出「每块板走了哪条路 / 跨 N 个 SN 的 13 维共性 / 测试值 vs 正常板 P5~P95 偏移」，3 个 CSV</td></tr>
+
+<tr><td class="c">26</td><td>8/21 明明有几 K 不良，选完点位就变空白了</td>
+<td class="c">lib/v2/retention.js<br>index.html checkRetention()</td>
+<td>根因是 AOI 明细主表只滚动保留约 25 天（后段 09-28 起 / 前段 09-17 起），维修表却留好几年 → JOIN 出 0 行。修法：日期框钉下限 + 橙色告警框写明「主表只留 N 天、维修表还有 X 条」+ 一键改日期；下拉刷新期间数字显示「· …」防旧数量冒充新窗口</td></tr>
+
+<tr><td class="c">27</td><td>筛选应该是 项目→日期→工站；工站带不良数按量排；再加意见反馈按钮；导出要含 Input/Output</td>
+<td class="c">index.html loadStations()<br>sql.js dictProductNg / stationIoQuery<br>server_v2.js /api/io</td>
+<td>工站数量走 <code>repair r JOIN main a</code> 基数 + <code>GROUP BY a.Ext10</code> + <code>MAXDOP 8</code>（1 天 0.2s / 7 天 0.6s）；项目同法（<code>dictProductNg</code> 1 天 1.6s）；IO 走 <code>TRS_Busi_StationTrace</code> 的 <code>SUM(PCBCount)/SUM(OkCount)</code> 并按索引 hint 选 time_process / Product；反馈按钮只是 mailto/tel + 复制当前条件</td></tr>
+
+<tr><td class="c">28</td><td>后段成品测试能不能和 SMT 的 link 打通 / 后段产品看不到机型名</td>
+<td class="c">lib/v2/link.js<br>lib/v2/prodmap.js<br>server_v2.js /api/be/link</td>
+<td>后段 NG 板号 → 前段 <code>TRS_Base_PCBCode.PCBCode</code> 映射面板码（400 条 0.1~0.3s）→ 8 维对照（前段工序 / 工站 / 贴片机 / 载具 / 钢网 / 吸嘴 / 飞达 / 穴位）。对照板取<b>同一时间窗、同一道后段工序判 OK 的板</b>（从后段过站表 <code>TRS_Busi_StationTrace</code> 的 <code>OkCount&gt;0</code> 取 TOP 8000 → 映射前段面板码 1~2s）。两次踩坑都写进注释：①按产品模糊取 → 两组机型对不上；②同工单取前段面板 → 取到「整条流程走满的板」，算出 111 倍假值。维度查询四条并发 + 每 150 块面板一段：16s → 1~4s，整体 27s → 4~5s。产品名走 <code>MdcdatProduct</code> 归一化（<code>PRODUCT-B-001</code> ↔ <code>PRODUCT-A-001</code>，7,047 键 / 0.3s）</td></tr>
+</table>
+
+<h2>二、数据链路（一张图看懂东西从哪来）</h2>
+<div class="tree">
+共性分析_v6.7/
+├── lib/conn.js             42 行  Mes 主库连接（&lt;MES_HOST&gt;）+ 只读熔断
+├── lib/conn_be.js          44 行  后段库连接（&lt;BE_HOST&gt;）+ 同样的只读熔断
+├── lib/v2/sql.js          408 行  所有 SMT SQL 构造器（不良池/贴装/材料/基准/历史/级联字典/工站带数/Input-Output）
+├── lib/v2/collect.js      340 行  取数编排：分批、限流、缓存、跨工单、30 天历史
+├── lib/v2/engine.js       710 行  纯计算：14 个维度、lift、显著性、混杂、慢性判定
+├── lib/v2/be_sql.js       473 行  后段 SQL（8 道工序的分子/分母/字典/工单映射）
+├── lib/v2/be_engine.js    444 行  后段统计（复用同一套 lift + 二项检验 + Bonferroni）
+├── lib/v2/be_collect.js   190 行  后段编排（并行分维取数）
+├── lib/v2/sn_trace.js     753 行  按 SN 全链路追溯（SMT+BE+ClickHouse 测量值+对照板+偏移对比）
+├── lib/v2/retention.js     97 行  明细保留期体检（主表滚动清理 → 选早了要明确告警）
+├── lib/v2/link.js         380 行  前后段联动：后段 NG 板 → 前段面板码 → 8 维对照 + 二项校正
+├── lib/v2/prodmap.js       48 行  两库产品命名归一化（给后段下拉补机型名）
+├── server_v2.js           858 行  HTTP 接口 + ClickHouse 客户端 + 端口顺延 + 开浏览器
+├── public/index.html     3196 行  界面：筛选、四张图、排查清单、报告模板、按 SN 查、意见反馈、前后段联动
+├── （开源仓库不含 AOI 原工具，发行包内另附 1.75 MB）
+├── tests/v2_engine_test.js  14 项  纯离线回归（多重比较、口径、只读）
+└── tests/v2_case.js         真实库端到端
+</div>
+
+<h3>关键字段说明（踩过坑的）</h3>
+<table>
+<tr><th style="width:26%">字段</th><th>真实含义（已验证）</th></tr>
+<tr><td class="c">SubCodeTrace.PartPos</td><td>位号_穴位（如 CL0202_14），<code>SourcePartPos</code> 才是纯位号</td></tr>
+<tr><td class="c">MachineTrace.IsPanel</td><td>=1 时 PCBCode 存的是<b>面板码</b>，不是单板码</td></tr>
+<tr><td class="c">TrackTrace.UniqueCode</td><td>逗号分隔：MPN,料号,批号,日期码,数量,卷号,<b>厂商</b></td></tr>
+<tr><td class="c">SPI.Component_ID</td><td>「元件_穴位」（COMP-A_37），查要按前缀匹配</td></tr>
+<tr><td class="c">SMT_PanelCode.SteelCode</td><td>与板<b>一一对应</b>（一板一钢片），所以不能做共性维度</td></tr>
+</table>
+
+<h2>三、统计口径（这四条决定了结论可不可信）</h2>
+<table>
+<tr><th style="width:18%">概念</th><th style="width:34%">定义</th><th>为什么这么定</th></tr>
+<tr><td><b>暴露</b>（分母）</td><td>批内维度：该取值在这批板同一位号全部穴位里出现几次；面板级维度：基准池里用了它的板数</td><td>同一批板自己当对照，不受产量波动影响</td></tr>
+<tr><td><b>风险比 lift</b></td><td>（该取值不良数 ÷ 本维总不良）÷（该取值暴露数 ÷ 本维总暴露）</td><td>比"绝对占比"公平：3 个取值的高占比字段不会盖住 90 个取值的真信号</td></tr>
+<tr><td><b>显著性</b></td><td>二项上尾检验 + Bonferroni 校正（α=0.05）</td><td>90 个穴位里总有几个"碰巧 3 条"，不校正就会把噪音当结论（v2 初版踩过：3/24 报成 11.2×）</td></tr>
+<tr><td><b>入选门槛</b></td><td>不良 ≥3、暴露 ≥5（面板/穴位≥10）、倍数 ≥1.5、校正后 p&lt;0.05</td><td>四条同时满足才进榜；达不到就明说"分散"，分散也是结论</td></tr>
+</table>
+
+<h2>四、代码结构（要改什么，找哪个文件）</h2>
+<div class="tree">
+共性分析_v4.5/
+├── lib/conn.js            <span class="tag">656 行里的 30 行</span> 数据库连接 + 只读熔断
+├── lib/v2/sql.js          258 行  所有 SQL 构造器（不良池/贴装/材料/基准/历史/级联字典）
+├── lib/v2/collect.js      306 行  取数编排：分批、限流、缓存、跨工单、30 天历史
+├── lib/v2/engine.js       656 行  纯计算：14 个维度、lift、显著性、混杂、慢性判定
+├── server_v2.js           419 行  HTTP 接口 + ClickHouse 客户端 + 端口顺延 + 开浏览器
+├── public/index.html     1805 行  界面：筛选、四张图、排查清单、报告模板
+├── （开源仓库不含 AOI 原工具，发行包内另附 1.75 MB）
+├── tests/v2_engine_test.js  14 项  纯离线回归（多重比较、口径、只读）
+└── tests/v2_case.js         真实库端到端
+</div>
+<div class="ok"><b>为什么这么分</b>：<code>engine.js</code> 是纯函数、不碰数据库，所以能离线测；<code>sql.js</code> 只拼 SQL；<code>collect.js</code> 负责编排。改口径只动 engine，改数据源只动 sql。</div>
+
+<h2>五、已知边界（别再问"为什么这里不行"）</h2>
+<table>
+<tr><th style="width:30%">做不到 / 有局限</th><th>原因（实测）</th></tr>
+<tr><td>印刷参数（压力/速度/脱模）</td><td>MES 里没有这些字段；只能给钢网号、刮刀、SPI 结果</td></tr>
+<tr><td>CLIP 类元件的吸嘴分析</td><td>CLIP_10 在 SubCodeTrace 里没有贴装记录（那条线不贴它）</td></tr>
+<tr><td>钢片作为共性维度</td><td>一板一钢片，1:1，没有可比性</td></tr>
+<tr><td>"是不是比历史变差"</td><td>只有日均条数粗判；真要做需要「日不良率」，分母（检测量）单条 SQL 跑 180 秒没回来</td></tr>
+<tr><td>单次分析 300 条上限</td><td>854 条时取数 146 秒，浏览器会断连；取最近 300 条并明示</td></tr>
+<tr><td>因果结论</td><td>工具给的是「异常聚集 + 统计证据」，最终判定必须现场验证</td></tr>
+<tr><td>2026-09-28（后段）/ 09-17（前段）之前的不良明细</td><td>AOI 主表只滚动保留约 25 / 36 天，更早的已被 MES 清掉；现在选到会弹橙色告警，而不是给你一片空白</td></tr>
+<tr><td>后段（BE）的「工位」倍数</td><td>过站表与不良表的工位码写法不一致，同一工位码两边板号交集实测是 0 条，算倍数没有意义；定机台请看「机台」维</td></tr>
+<tr><td>后段按「项目」筛不良数</td><td>两个库的产品命名不同（SMT <code>PRODUCT-A-002</code> vs BE <code>PRODUCT-B-002</code>），只能先产品→工单再按工单 IN 过滤（7 天约 2 秒）</td></tr>
+</table>
+
+<h2>六、以后怎么跟我讲（这部分最重要）</h2>
+
+<div class="box">
+<b>核心原则</b>：你是懂工艺的人，我是写代码的人。<b>你负责说清"现实里发生了什么、你想要什么样的答案"，我负责把它翻译成数据链和算法。</b>
+你不需要知道表名、字段名、用什么统计方法——那是我该问的。
+</div>
+
+<h3>6.1 一条需求的最小集合（四件套）</h3>
+<pre><span class="k">【现象】</span>谁、在哪、什么时候、什么不良（越具体越好，给一个真实案例）
+<span class="k">【范围】</span>工站 / 点位 / 时间窗 / 机台 / 项目
+<span class="k">【我想知道的】</span>是机台？排版？材料？还是"都不是"
+<span class="k">【给谁用】</span>我自己看 / 发给同事 / 发给客户   ← 决定要不要打包、要不要脱敏、要不要 SOP</pre>
+
+<div class="good"><b>好例子（你上次就是这么说的，我一次就做对了）</b><br>
+"先把 LINE-A 的 ANT4-tab Post AOI 偏移跑通" —— 有机器、有元件、有工站、有不良类型。<br>
+"图看不出来任何东西，按这个工具的画法画" + 给了文件路径 —— 有症状、有参考物，比说"重画一下"有效十倍。</div>
+
+<div class="bad"><b>容易让我跑偏的说法</b><br>
+"做个共性分析工具" —— 范围太大，我只能猜。<br>
+"这个不好用" —— 我不知道是数据错、图难看、还是结论不对。<br>
+"参考一下那个工具" 但不给路径 —— 我得去猜是哪个。</div>
+
+<h3>6.2 说改动的三个句式（按好用程度排）</h3>
+<table>
+<tr><th style="width:28%">句式</th><th>例子</th><th style="width:28%">为什么好用</th></tr>
+<tr><td><b>现象 + 期望</b></td><td>"SPI 和 AOI 数据现在要单独选，我希望选了点位就自动出"</td><td>我能直接定位到控件和取数逻辑</td></tr>
+<tr><td><b>对照 + 差异</b></td><td>"这个图跟 MK 那个比，看不出分布，只有一堆点"</td><td>我能去读参考实现，而不是凭想象</td></tr>
+<tr><td><b>质疑口径</b></td><td>"7 天不良都很高，基准不就偏了？"</td><td>这类问题最有价值，直接补一层方法</td></tr>
+</table>
+
+<h3>6.3 关键词 → 我会做什么</h3>
+<table>
+<tr><th style="width:22%">你说</th><th>我会理解成</th></tr>
+<tr><td>看不出来 / 看不明白</td><td>图的可读性问题，去改视觉编码（大小/颜色/形状），不是改数据</td></tr>
+<tr><td>太多了 / 太乱</td><td>做收敛：每维限量、折叠、默认收起、按重要性排序</td></tr>
+<tr><td>联动 / 自动</td><td>去掉手动选择，让下游跟着上游走</td></tr>
+<tr><td>要发给 XX</td><td>打包：可离线、单文件、带 SOP、Win/Mac 都能跑</td></tr>
+<tr><td>这个数不对 / 跟 MES 不一致</td><td>先核对口径（时间窗、待复判、机台范围），再查 SQL</td></tr>
+<tr><td>基准 / 对照</td><td>动的是分母，属于方法层面，我会先给方案再改</td></tr>
+<tr><td>按 XX 工具那样</td><td>去读那个文件，照它的视觉语言和交互来</td></tr>
+</table>
+
+<h3>6.4 三条铁律</h3>
+<div class="warn"><b>① 给真实案例，别给抽象需求。</b>"LINE-A 的 COMP-A 在 10/9-10/10 有 24 条偏位" 比 "做个不良分析" 有用一百倍——我能立刻跑通、验证、给你看数。</div>
+<div class="warn"><b>② 一次说多条没问题，但请编号。</b>你上次一口气说四件事（去部门、内联清单、列维度、加分布图），我按 1/2/3/4 逐条做，最后逐条回报。不编号的话我容易漏。</div>
+<div class="warn"><b>③ 说"哪里不对"，比说"重做"有效。</b>"OffsetX 分不开，但 Rotation 89% 分开" 这种反馈能让我一步到位；"重新做一版" 我只能猜方向。</div>
+
+<h3>6.5 一个可以直接抄的模板</h3>
+<pre><span class="k">【现象】</span>Post AOI 10/9-10/10，LINE-A，COMP-A 偏位 24 条
+<span class="k">【范围】</span>后段 AOI，两台机都要，10/9 08:00 到 10/10 12:00
+<span class="k">【我想知道的】</span>是 MACH-2 机台的问题，还是载具/排版
+<span class="k">【给谁用】</span>发给 PE 和 EE，要能打印
+<span class="k">【参考】</span>图按这个工具画：<路径>
+<span class="k">【验收】</span>一眼能看出哪个维度红、哪块单板要查</pre>
+
+<h2>七、版本演进（方便你回忆每一版加了什么）</h2>
+<table>
+<tr><th style="width:10%">版本</th><th>加了什么</th></tr>
+<tr><td class="c">v2.0</td><td>六维筛选 + 追溯链（机台/吸嘴/飞达/材料）+ 风险比 + 显著性校正</td></tr>
+<tr><td class="c">v2.1</td><td>同载具跨工单、吸嘴/飞达跨机台、排除待复判</td></tr>
+<tr><td class="c">v2.2</td><td>扩样验证按钮、排查建议弹窗</td></tr>
+<tr><td class="c">v2.3</td><td>级联筛选、小时级时间窗</td></tr>
+<tr><td class="c">v2.4</td><td>项目关键字筛选</td></tr>
+<tr><td class="c">v2.5</td><td>导出结论报告（HTML/PDF）</td></tr>
+<tr><td class="c">v2.6~2.7</td><td>ClickHouse 测量值分布、指标区分度扫描</td></tr>
+<tr><td class="c">v2.8~2.9</td><td>小提琴图、五指标小图、AOI 原工具入口</td></tr>
+<tr><td class="c">v3.0~3.1</td><td>泳道图、Pareto、规格线手改、强相关红色</td></tr>
+<tr><td class="c">v3.2</td><td>报告内嵌三张图、发行包（Win/Mac）</td></tr>
+<tr><td class="c">v3.3</td><td>慢性/突发判定（30 天历史对照）</td></tr>
+<tr><td class="c">v3.4</td><td>样件/试印板剔除、钢网维度</td></tr>
+<tr><td class="c">v3.5</td><td>SPI 取数修复（Decimal）、AOI/SPI 双路并行</td></tr>
+<tr><td class="c">v3.6~3.9</td><td>段别补全（UV-AOI/UV-VI/X-Ray 等）、SPI 规格线、测量值分页</td></tr>
+<tr><td class="c">v4.0</td><td>改名「共因洞察」、变好/变差结论、维度折叠</td></tr>
+<tr><td class="c">v4.1</td><td>对外名牌「司南 SINAN」双名制 + 品牌图标</td></tr>
+<tr><td class="c">v4.2~4.4</td><td>样件剔除全覆盖、启动器找 Node、「暴露」改说人话</td></tr>
+<tr><td class="c">v4.5</td><td>SOP 重写、发行包验证、双进程端口自增</td></tr>
+<tr><td class="c">v4.6</td><td>后段成品测试（BE）接入：AVI/VSWR/ICT/CR 等 8 道工序</td></tr>
+<tr><td class="c">v4.7</td><td>按 SN 全链路追溯：SMT+BE 过站、AOI/SPI 实测值、前后 200 块对照板、测试值偏移</td></tr>
+<tr><td class="c">v4.8</td><td>明细保留期体检：AOI 主表只留约 25 天，选早了给橙色告警 + 一键改日期，不再静默空白</td></tr>
+<tr><td class="c">v4.9</td><td>筛选顺序改「项目 → 日期 → 工站」（工站带不良数、按量降序、逐层收敛）+ 意见反馈按钮 + 导出明细带 Input/Output 良率</td></tr>
+<tr><td><b>v6.7</b><br>2026.11.04</td><td><b>不良上限 300→1000 + 工作台粘贴识别折叠 + 修三处坑。</b><b>① 上限</b>：<code>sampling.js</code> 的 <code>MAX_ANALYZED</code> 300→1000；前提是 <code>collect.js</code> 新增 <code>runBatched(items,size,conc,fn)</code>（按批顺序回填 buckets，下游顺序不变），贴装明细 / 载具钢片 / SPI / 钢网四处从 <code>chunk(…,800)</code> 串行改成 <code>PLACE_CHUNK=30</code> × <code>PLACE_CONC=6</code>（795 板 77,109ms → 3,438ms）；删掉死常量 <code>MAX_NG</code>。<b>② 折叠</b>：<code>#pqmHead</code>/<code>#pqmBody</code> + <code>localStorage.pqm_paste_open</code> + 键盘可达；URL 带参数时 <code>openPasteBox()</code> 自动展开。<b>③ 三处坑</b>：<code>server_v2.js</code> 的 <code>APP_VER</code> 与页面静态版本统一为 v6.7（并加断言防再分叉）；<code>mapSide</code> 改 <code>MAP_RULES</code> 规则表按长 key 先比（AVI-EB 不再被 AVI 吃掉，补 PRESSURE）；<b>★</b> <code>windowPanelsQuery</code> 参数嗅探 → 同语句 158s vs 0.6s，钉死 <code>OPTION (MAXDOP 4, RECOMPILE)</code>，案例从 168 秒降到 15 秒。新增 <code>tests/v2_v67_test.js</code>（22 项）。</td></tr>
+<tr><td><b>v6.6</b><br>2026.11.02</td><td>按 SN 追溯拆两条路：<b>SMT+BE 联合追溯 / 仅 BE 段</b>。新增 <code>traceBe()</code>（不取 SMT 对照，100 SN 2.7 s）、<code>exportBe()</code>（17 列）、<code>beDenom()</code>（逐天 <code>GROUP BY Process</code>，去掉 <code>COUNT(DISTINCT)</code> —— 那是 137 秒的元凶）、<code>crossSnFor(rows,dims)</code>（只算 BE 六维）。<code>neighbors(targets,n,exact)</code> 加第三参数、<code>nbQuery</code> 加 Ext10 站别过滤、<code>pcsAroundGroup</code> 同组复用、<code>nbDir</code> 空窗短路；<code>chSpi</code>/<code>chCoverage</code> 并行化，CH 扫描窗余量 3 天→6 小时。<code>beSnsHit</code> 口径从「有不良的 SN」改为「有后站记录的 SN」。新增 <code>tests/v2_beonly_test.js</code>（58 项）。</td></tr>
+<tr><td class="c">v6.5</td><td><b>SN 追溯：进度浮层 + 对照按 pcs（30/100/300）+ 全链路导出 + 修 4 个导出 bug。</b><b>① 进度浮层</b>：SN 追溯以前只有一行转秒数，现在复用 <code>waitStart(label, steps)</code>（加了可选第二参数，SMT/BE 一字不用改），六步文案按 SN 真实顺序写。<b>② 对照从 panel 改成 pcs</b>：一块 panel 是整块拼板（实测平均 102 个 pcs、最多 360），「前后各 200 块 panel」≈ 两万个产品，这就是导出大到没法看的原因。改法两步走：先按 panel 取附近几块（<code>neighbors(targets, n, exact)</code> 新增第三参数 exact，绕过 <code>max(40,…)</code>），再 <code>pcsOfPanels()</code> 取这些 panel 的全部 pcs（320ms），3.3 秒拿到；直接按 <code>PCBCode</code> 查要 11~14 秒（<code>TS_AOI_Rear</code> 无该列索引）。基准只认选中的 pcs（<code>keep</code> 集合过滤），不许同板未选中的混进分母。<b>③ 全链路导出 <code>exportFull()</code></b>：一行一个事件、24 列，含 SMT 过站/AOI 判定/SPI 判定/BE 过站/BE 不良 + AOI 五指标 + SPI 五指标（带规格上下限与超规判定、邻居中位数）。相同 SN 从 67,323 行降到 1,141 行。<b>④ 四个真 bug</b>：<code>exportDetail</code> 的 AOI 行 17 个值对 18 列表头（测量值整体右移一格）；SPI 按 pcs 条码过滤导致 0 行（<code>Board_Barcode</code> 存的是板号基码，改用「基码+穴位」认）；<code>Number()===0</code> 把没测写成「实测 0 / 规格 0~0 / 不超规」（改用正则只接受真数字）；pcs 口径下 <code>compare</code> 用 <code>loc|modid</code> 做基准键导致空表（每块 pcs 只有一个模组号，改用 <code>loc</code>）。新增 <code>tests/v2_pcs_test.js</code>（16 项）。</td></tr>
+<tr><td class="c">v6.4</td><td><b>时间段直方图 + 突发上升判定、等待浮层、发行包预置连接、3 页介绍。</b><b>① 前段 SMT 补上「时间段不良分布」</b>（以前只有 BE 有）：按天柱 + 24 根按小时柱 + 一句判定。判据：按天切前 1/3 与后 1/3 比均值，后段 ≥ 前段 2 倍 = 在上升，1.3~2 倍 = 略有抬头，更低 = 平/在下降；单天 ≥ 中位 3 倍单独标「孤立尖峰」并声明它不等于整体上升；样本 &lt;8 条或 &lt;4 天直说「看不出来」。<b>为什么不用回归斜率</b>：不良条数是离散计数、常有 0 值，一个尖峰就能把斜率带偏，会说成「整体恶化」这种假话；三段均值抗噪且贴近一线看板习惯。<b>顺带修了个真 bug</b>：MES 的 CreateTime 是 Date 对象，旧代码 <code>String(t).slice(0,10)</code> 得到 <code>"Mon Oct 19"</code>，与 <code>"2026-10-19"</code> 对不上，导致慢性/突发图里「本次分析窗」的深色柱从来没画出来过；改走新的 <code>mesDayOf()</code>（必须用 UTC 分量，用本地 getter 会整体偏 +8 小时、晚上 20:00 被推成次日），实测窗口 4 天全命中（修复前 0 天）。<b>② 等待浮层</b>加司南图标（缓慢旋转）+ 92% 停住等真实完成。<b>③ 发行包预置连接</b>：<code>lib/config.js</code> 增加第三优先级「发行包自带 <code>config/</code>」，同事双击即用；同时把《给MES的说明》《搭建逻辑与协作指南》移出发行包。<b>④</b> 另出 3 页《司南能帮你做什么》介绍，末页放联系方式。新增 <code>lib/v2/burst.js</code>、<code>tests/v2_burst_test.js</code>（54 项，含 MES 取日期的时区锚点）、<code>lib/v2/date_utils.js</code> 的 <code>mesDayOf/mesHourOf</code>。</td></tr>
+<tr><td class="c">v6.3</td><td><b>被动共现分离 + 等待动画。</b>解决「一个物理原因让多个维度同时显得集中」这个问题：载具 90 号穴位有异物 → 穴位集中、同批材料集中、贴该穴位的吸嘴/轨道也集中，但后两者本身没问题。算法：对每个已上榜的显著项，把别的项<b>整行剔掉</b>（暴露同时减）再按新基准率重算倍数；剔完仍 ≥1.5× → 自身有独立问题；剔完 &lt;1.5× 且对方剔完仍高、且有 ≥50% 不良重叠 → 判「被动共现」并点名是谁拖的。两项不良板近乎完全重叠且倍数差 ≤3 倍 → 判「同簇」（同一条线索的不同视角，要一起查）；倍数差 &gt;3 倍不许并簇，防止 233× 的穴位和 1.9× 的机台被说成一件事。实测 PRODUCT-A-005 / C0201 / 10-19~26：12 个信号中 3 项被动（三个材料批号被穴位 139 解释，剔后 0 条不良）、3 组同簇，飞达 FEEDER0003 剔后仍有 7.4× 判独立。<b>后段 BE 不做这层</b>：机台/holder/穴位/轨道同源解析、天生嵌套，剔除必然造假被动，继续用首因率。界面新增「被动共现分离」卡片（四格 KPI + 被解释项表 + 同簇分组），报告新增对应章节并放在显著信号之前；显著信号表加「判读」列。另加等待浮层：百分比 + 进度条 + 阶段字幕 + 人话提示，92% 停住等真实完成。新增 <code>lib/v2/passive.js</code> 与 <code>tests/v2_passive_test.js</code>（14 项）。</td></tr>
+<tr><td class="c">v6.2</td><td>首因 / 传导判读：后段每个入选项多给「首因率」（这批板有多大比例是在本工序第一次被判 NG）。≥90% 判首因、≤50% 判疑似传导并降级到「不能当结论」表、中间的判「各半」。实测 AVI 99.61% / VSWR 99.69% 都是首因，后段内部传导仅 0.31%~0.39%；真正的传导在 SMT→BE，故「前后段联动」加「传导链判读」，把 SMT 侧信号直接标成首因。导出报告新增「首因判读」章，信号表与未通过表各加「首因率 / 判读」两列。</td></tr>
+<tr><td class="c">v6.1</td><td>口径纠偏（按 codex 审核规格书）：①日期改本地时区，跨零点不再算错日；②日均分母 = 实际窗口天数，空白日计 0；③300 条改 MD5 稳定哈希抽样，同一份数据重跑抽同一批，页面/报告/CSV 三处写明全量 vs 抽样；④多重检验改跨维度 Holm（一次分析一个家族，实测 59 个候选），「分散」不再写「可以排除」；⑤并发说明改「仅本机限流」；⑥凭据外置到 ~/.config/sinan/，源码与发行包内无密码。</td></tr>
+<tr><td class="c">v6.0</td><td>后段（BE）与 SMT 打通：后段不良板 → 前段面板码 → 8 个维度对照（前段工序 / 前段工站 / 贴片机 / 载具 / 钢网 / 吸嘴 / 飞达 / 穴位），带倍数与二项校正显著性；对照板改为「同窗同工序判 OK 的板」；后段工序维删掉「不良现象 / 板上点位」（那是结果不是原因）、工单不再算共性；后段产品下拉补机型名（两库产品命名归一化）</td></tr>
+</table>
+
+<p style="margin-top:28px;color:#7b8794;font:11px ui-monospace,monospace">Powered by PQM Morgan · v6.0 · 2026.10.26</p>
+</body></html>

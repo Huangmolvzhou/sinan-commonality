@@ -1,0 +1,34 @@
+{
+  "name": "sinan-commonality",
+  "version": "6.7.0",
+  "description": "司南 SINAN — SMT 不良共性分析工具。选定项目/时间/工站/点位后，自动从 MES 拉取机台、吸嘴、飞达、载具、钢网、材料批次与 SPI/AOI 实测值，和同批正常板做对照，用风险比 + 多重比较校正判断不良到底集中在哪一环。",
+  "private": false,
+  "main": "server_v2.js",
+  "scripts": {
+    "start": "node server_v2.js",
+    "test": "node tests/run_all.js",
+    "test:engine": "node tests/v2_engine_test.js",
+    "test:passive": "node tests/v2_passive_test.js",
+    "test:burst": "node tests/v2_burst_test.js",
+    "config": "node lib/setup_config.js"
+  },
+  "keywords": [
+    "smt",
+    "quality",
+    "commonality",
+    "root-cause",
+    "aoi",
+    "spi",
+    "mes",
+    "statistics",
+    "holm-bonferroni"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "mssql": "^12.7.6"
+  },
+  "author": "Morgan Kang",
+  "license": "MIT"
+}
