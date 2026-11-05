@@ -4789,7 +4789,7 @@ boot();
      这里探测一下：文件在（本地/发行包里）就把顶栏入口显示出来，不在就保持隐藏，
      免得点进去 404。 */
   function probeAoiTool(){
-    var a = $('#aoiLink'); if(!a) return;
+    var a = document.getElementById('aoiLink'); if(!a) return;
     fetch('/aoi-tool.html', {method:'HEAD'}).then(function(r){
       if(r.ok) a.style.display='';
     }).catch(function(){ /* 没有就算了，入口保持隐藏 */ });
