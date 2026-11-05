@@ -801,7 +801,8 @@ function checkRetention() {
     var u = '/api/retention?' + new URLSearchParams({ side: b.side, t0: b.t0, t1: b.t1, t0h: b.t0h, t1h: b.t1h });
     api(u).then(function(j){
       var box = $('#retWarn');
-      if (!j || !j.warn) { box.style.display = 'none'; RET_SHOWN = null; return; }
+      /* 数据库没配 / 主表为空时别弹「已被清理」—— 那不是清理问题，顶上已有对应提示 */
+      if (!j || !j.warn || j.configured === false || j.reason === 'empty_table') { box.style.display = 'none'; RET_SHOWN = null; return; }
       /* 同一个保留期只提示一次，别每敲个日期就重画一遍 */
       var sig = j.min + '|' + b.t0 + '|' + (j.partial ? 1 : 0);
       if (sig === RET_SHOWN) { box.style.display = ''; return; }
